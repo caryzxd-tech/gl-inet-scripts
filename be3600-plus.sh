@@ -1,8 +1,8 @@
 #!/bin/sh
 # be3600-plus.sh — 基于 be3600.sh 的改进版本
 # 原作者: @wukongdaily
-# 修复: 菜单第5项"自定义风扇启动温度"在原版中有函数但未显示在菜单，已补全
-# 版本: plus-1.1 (2026-03-23)
+# 改进: 修复菜单第5项缺失、风扇warn_temp逻辑、输入校验、错误处理、新增OpenClash安装
+# 版本: plus-2.0 (2026-03-23)
 
 # 定义颜色输出函数
 red() { echo -e "\033[31m\033[01m$1\033[0m"; }
@@ -52,7 +52,7 @@ do_istore() {
 
 	# 创建目录
 	mkdir -p "$DIR"
-	cd "$DIR" || exit 1
+	cd "$DIR" || return 1
 
 	for ipk in $(wget -qO- "$URL" | grep -oE 'href="[^"]+\.ipk"' | cut -d'"' -f2); do
 		echo "下载 $ipk"
@@ -320,18 +320,21 @@ EOF
 #自定义风扇开始工作的温度
 set_glfan_temp() {
 
-	is_integer() {
-		if [[ $1 =~ ^[0-9]+$ ]]; then
-			return 0 # 是整数
-		else
-			return 1 # 不是整数
-		fi
-	}
 	echo "兼容带风扇机型的GL-iNet路由器"
 	echo "请输入风扇开始工作的温度(建议40-70之间的整数):"
 	read temp
 
-	if is_integer "$temp"; then
+	# 兼容 sh 的整数校验（不依赖 bash 的 [[ =~ ]]）
+	case "$temp" in
+		''|*[!0-9]*) echo "错误: 请输入整数."; return ;;
+	esac
+
+	if [ "$temp" -lt 30 ] || [ "$temp" -gt 85 ]; then
+		echo "错误: 温度应在 30-85°C 之间."
+		return
+	fi
+
+	if true; then
 		# warn_temperature 设为启动温度 +15°C，避免与启动温度相同导致逻辑混乱
 		warn_temp=$((temp + 15))
 		uci set glfan.@globals[0].temperature="$temp"
@@ -410,6 +413,64 @@ do_auto_install_ui_helper() {
   opkg install "$ipk_file"
 }
 
+# 安装 OpenClash
+do_install_openclash() {
+	echo "📥 正在安装 OpenClash..."
+
+	# 安装依赖
+	opkg update
+	opkg install coreutils-nohup bash iptables dnsmasq-full curl ca-certificates ipset ip-full \
+		iptables-mod-tproxy iptables-mod-extra libcap libcap-bin ruby ruby-yaml kmod-tun \
+		kmod-inet-diag unzip luci-compat luci luci-base 2>/dev/null
+
+	# 如果 dnsmasq-full 冲突，先卸载 dnsmasq 再装
+	if ! opkg list-installed | grep -q "dnsmasq-full"; then
+		opkg remove dnsmasq && opkg install dnsmasq-full
+	fi
+
+	# 获取最新 release 版本号
+	CLASH_URL="https://github.com/vernesong/OpenClash/releases"
+	echo "正在获取最新版本信息..."
+
+	# 直接从 GitHub API 获取最新 release
+	LATEST_VER=$(wget -qO- "https://api.github.com/repos/vernesong/OpenClash/releases/latest" 2>/dev/null | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+
+	if [ -z "$LATEST_VER" ]; then
+		yellow "⚠️ 无法获取最新版本，使用备用方式安装..."
+		# 备用：从 iStore 安装（如果有的话）
+		opkg install luci-app-openclash 2>/dev/null
+		if [ $? -eq 0 ]; then
+			green "✅ OpenClash 从 iStore 安装成功"
+			return 0
+		fi
+		red "❌ 安装失败，请检查网络连接"
+		return 1
+	fi
+
+	IPK_NAME="luci-app-openclash_${LATEST_VER#v}_all.ipk"
+	IPK_URL="https://github.com/vernesong/OpenClash/releases/download/${LATEST_VER}/${IPK_NAME}"
+
+	echo "📦 下载 OpenClash ${LATEST_VER}..."
+	wget --user-agent="Mozilla/5.0" -O "/tmp/${IPK_NAME}" "$IPK_URL"
+	if [ $? -ne 0 ]; then
+		red "❌ 下载失败，请检查网络（可能需要代理访问 GitHub）"
+		return 1
+	fi
+
+	opkg install "/tmp/${IPK_NAME}"
+	if [ $? -eq 0 ]; then
+		green "✅ OpenClash ${LATEST_VER} 安装成功！"
+		green "🌐 访问 http://192.168.8.1/cgi-bin/luci/admin/services/openclash"
+		echo ""
+		yellow "📝 提示：还需要下载 Clash 内核才能使用，请在 OpenClash 界面中操作"
+		# 清理
+		rm -f "/tmp/${IPK_NAME}"
+	else
+		red "❌ 安装失败"
+		return 1
+	fi
+}
+
 #高级卸载
 advanced_uninstall(){
 	echo "📥 正在下载 高级卸载插件..."
@@ -446,6 +507,8 @@ while true; do
 	light_magenta " 8. 安装高级卸载插件"
 	echo
 	light_magenta " 9. 恢复出厂设置/重置路由器"
+	echo
+	light_magenta " 10. 安装 OpenClash（科学上网）"
 	echo
 	echo " Q. 退出本程序"
 	echo
@@ -486,6 +549,9 @@ while true; do
 		;;
 	9)
 		recovery
+		;;
+	10)
+		do_install_openclash
 		;;
 	q | Q)
 		echo "退出"
