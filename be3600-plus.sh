@@ -419,8 +419,8 @@ do_install_openclash() {
 
 	# 安装依赖
 	opkg update
-	opkg install coreutils-nohup bash iptables dnsmasq-full curl ca-certificates ipset ip-full \
-		iptables-mod-tproxy iptables-mod-extra libcap libcap-bin ruby ruby-yaml kmod-tun \
+	opkg install bash iptables dnsmasq-full curl ca-bundle ipset ip-full \
+		iptables-mod-tproxy iptables-mod-extra ruby ruby-yaml kmod-tun \
 		kmod-inet-diag unzip luci-compat luci luci-base 2>/dev/null
 
 	# 如果 dnsmasq-full 冲突，先卸载 dnsmasq 再装
