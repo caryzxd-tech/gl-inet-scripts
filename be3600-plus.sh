@@ -2,7 +2,7 @@
 # be3600-plus.sh — 基于 be3600.sh 的改进版本
 # 原作者: @wukongdaily
 # 修复: 菜单第5项"自定义风扇启动温度"在原版中有函数但未显示在菜单，已补全
-# 版本: plus-1.0 (2026-03-23)
+# 版本: plus-1.1 (2026-03-23)
 
 # 定义颜色输出函数
 red() { echo -e "\033[31m\033[01m$1\033[0m"; }
@@ -332,13 +332,16 @@ set_glfan_temp() {
 	read temp
 
 	if is_integer "$temp"; then
+		# warn_temperature 设为启动温度 +15°C，避免与启动温度相同导致逻辑混乱
+		warn_temp=$((temp + 15))
 		uci set glfan.@globals[0].temperature="$temp"
-		uci set glfan.@globals[0].warn_temperature="$temp"
+		uci set glfan.@globals[0].warn_temperature="$warn_temp"
 		uci set glfan.@globals[0].integration=4
 		uci set glfan.@globals[0].differential=20
 		uci commit glfan
 		/etc/init.d/gl_fan restart
-		echo "设置成功！稍等片刻,请查看风扇转动情况"
+		echo "设置成功！风扇启动温度: ${temp}°C，警告温度: ${warn_temp}°C"
+		echo "稍等片刻，请查看风扇转动情况"
 	else
 		echo "错误: 请输入整数."
 	fi
